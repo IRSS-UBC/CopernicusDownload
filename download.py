@@ -112,7 +112,6 @@ filtered_products = [
     if start_date <= datetime.strptime(product['ContentDate']['Start'], "%Y-%m-%dT%H:%M:%S.%fZ") <= end_date
 ]
 
-
 # %%
 
 for product in tqdm.tqdm(filtered_products, desc="Downloading Products", unit="product"):
@@ -129,13 +128,12 @@ for product in tqdm.tqdm(filtered_products, desc="Downloading Products", unit="p
     session.headers.update(headers)
     response = session.get(url, headers=headers, stream=True)
 
-
     content_size = int(response.headers.get('Content-Length', 0))
 
-
     with open(product['Name'], "wb") as file:
-        for chunk in tqdm.tqdm(response.iter_content(chunk_size=download_chunk_size), desc=f"Downloading {product['Name']}",
-                               unit="chunk", total=content_size / download_chunk_size):
+        for chunk in tqdm.tqdm(response.iter_content(chunk_size=download_chunk_size),
+                               desc=f"Downloading {product['Name']}",
+                               unit="chunk", total=content_size / download_chunk_size, leave=False):
             if chunk:
                 file.write(chunk)
 
