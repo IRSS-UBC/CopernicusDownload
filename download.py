@@ -11,7 +11,7 @@ download_chunk_size = 8192
 
 serviceName = "odata_dataspace"
 start_date_str = "2020-01-01"
-end_date_str = "2020-01-30"
+end_date_str = "2020-01-03"
 
 
 # %%
@@ -105,25 +105,35 @@ end_date += timedelta(days=1)
 temporal_filter = (
     f"ContentDate/Start gt {start_date.isoformat()}Z "
     f"and ContentDate/Start lt {end_date.isoformat()}Z"
-
 )
 
-api_query = (
-    "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
-    f"$filter={spatial_filter} and {product_filter} and {temporal_filter}"
-)
+products = []
 
-data = requests.get(api_query).json()
+depth = 0
+while True:
+    print(f"Querying depth {depth}")
+    depth += 1
+    api_query = (
+        "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
+        f"$filter={spatial_filter} and {product_filter} and {temporal_filter}&$top=20&$orderby=ContentDate/Start desc"
+    )
+    data = requests.get(api_query).json()
 
-# %%
+    products.append(data['value'])
 
+    if "@odata.nextLink" in data:
+        api_query = data['@odata.nextLink']
+    else:
+        print("Found no more pages.")
+        break
+
+#%%
 
 start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
 end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
 
 filtered_products = [
-    product for product in data['value']
-    # if start_date <= datetime.strptime(product['ContentDate']['Start'], "%Y-%m-%dT%H:%M:%S.%fZ") <= end_date
+    product for product in products
 ]
 
 # %%
