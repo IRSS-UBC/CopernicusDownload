@@ -1,27 +1,17 @@
 import os
 from datetime import datetime
 
+import keyring
 import requests
 import tqdm
 
-# %%
-username = "<enter username>"
-password = "<enter password>"
+import pwinput
 
+download_chunk_size = 8192
+
+serviceName = "odata_dataspace"
 start_date_str = "2016-04-25"
 end_date_str = "2016-04-27"
-
-# %%
-
-spatial_filter = "OData.CSC.Intersects(area=geography'SRID=4326;POLYGON((-140.99778 41.6751050889,-140.99778 83.23324,-52.6480987209 41.6751050889,-52.6480987209 83.23324,-140.99778 41.6751050889))')"
-product_filter = "contains(Name,'S3A_SL_2_LST')"
-
-api_query = (
-    "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
-    f"$filter={spatial_filter} and {product_filter}"
-)
-
-data = requests.get(api_query).json()
 
 
 # %%
@@ -40,7 +30,7 @@ def get_refresh_token(username, password):
     response = requests.post(url, headers=headers, data=data)
 
     if response.status_code != 200:
-        raise Exception("Error getting token: {}".format(response.json()))
+        raise ConnectionRefusedError("Error getting token: {}".format(response.json()))
     else:
         return response.json()['refresh_token'], response.json()['access_token']
 
@@ -83,6 +73,36 @@ def rename_extension(file_path, new_extension):
 
 # %%
 
+authenticated = False
+while not authenticated:
+    username = input("Please enter username:")
+
+    if keyring.get_password(serviceName, username) is None:
+        keyring.set_password(serviceName, username, pwinput.pwinput("Please enter your odata password:"))
+
+    try:
+        refreshToken, accessToken = get_refresh_token(username, keyring.get_password(serviceName, username))
+    except ConnectionRefusedError:
+        keyring.delete_password(serviceName, username)
+        continue
+    else:
+        print("Authenticated")
+        authenticated = True
+
+# %%
+
+spatial_filter = "OData.CSC.Intersects(area=geography'SRID=4326;POLYGON((-140.99778 41.6751050889,-140.99778 83.23324,-52.6480987209 41.6751050889,-52.6480987209 83.23324,-140.99778 41.6751050889))')"
+product_filter = "contains(Name,'S3A_SL_2_LST')"
+
+api_query = (
+    "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
+    f"$filter={spatial_filter} and {product_filter}"
+)
+
+data = requests.get(api_query).json()
+
+# %%
+
 
 start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
 end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
@@ -92,9 +112,6 @@ filtered_products = [
     if start_date <= datetime.strptime(product['ContentDate']['Start'], "%Y-%m-%dT%H:%M:%S.%fZ") <= end_date
 ]
 
-# %%
-
-refreshToken, accessToken = get_refresh_token(username, password)
 
 # %%
 
@@ -112,14 +129,16 @@ for product in tqdm.tqdm(filtered_products, desc="Downloading Products", unit="p
     session.headers.update(headers)
     response = session.get(url, headers=headers, stream=True)
 
-    print(response.status_code)
+
+    content_size = int(response.headers.get('Content-Length', 0))
+
 
     with open(product['Name'], "wb") as file:
-        for chunk in tqdm.tqdm(response.iter_content(chunk_size=8192), desc=f"Downloading {product['Name']}", unit="chunk"):
+        for chunk in tqdm.tqdm(response.iter_content(chunk_size=download_chunk_size), desc=f"Downloading {product['Name']}",
+                               unit="chunk", total=content_size / download_chunk_size):
             if chunk:
                 file.write(chunk)
 
     rename_extension(product['Name'], ".zip")
-
 
 # %%
