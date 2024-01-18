@@ -68,7 +68,7 @@ def rename_move(file_path, new_extension, new_path):
         # Rename the file
         os.rename(file_path, new_file_name)
 
-        shutil.move(new_file_name, destination)
+        shutil.move(new_file_name, new_path)
 
 
 
@@ -170,7 +170,7 @@ for product in tqdm.tqdm(products, desc="Downloading Products", unit="product"):
             if chunk:
                 file.write(chunk)
 
-    rename_move(product['Name'], ".zip")
+    rename_move(product['Name'], ".zip", destination)
 
 
 
