@@ -7,7 +7,11 @@ import tqdm
 
 import pwinput
 
+import shutil
+
 download_chunk_size = 8192
+
+destination = "/output"
 
 serviceName = "odata_dataspace"
 start_date_str = "2020-01-01"
@@ -53,7 +57,7 @@ def get_token(refresh_token):
         return response.json()['access_token']
 
 
-def rename_extension(file_path, new_extension):
+def rename_move(file_path, new_extension, new_path):
     try:
         # Split the file path into the base name and the extension
         base_name, current_extension = os.path.splitext(file_path)
@@ -63,6 +67,10 @@ def rename_extension(file_path, new_extension):
 
         # Rename the file
         os.rename(file_path, new_file_name)
+
+        shutil.move(new_file_name, destination)
+
+
 
         print(f"File successfully renamed with new extension: {new_file_name}")
     except FileNotFoundError:
@@ -162,6 +170,9 @@ for product in tqdm.tqdm(products, desc="Downloading Products", unit="product"):
             if chunk:
                 file.write(chunk)
 
-    rename_extension(product['Name'], ".zip")
+    rename_move(product['Name'], ".zip")
+
+
+
 
 # %%
