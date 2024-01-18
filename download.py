@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import keyring
 import requests
@@ -10,8 +10,8 @@ import pwinput
 download_chunk_size = 8192
 
 serviceName = "odata_dataspace"
-start_date_str = "2016-04-25"
-end_date_str = "2016-04-27"
+start_date_str = "2020-01-01"
+end_date_str = "2020-01-30"
 
 
 # %%
@@ -94,9 +94,23 @@ while not authenticated:
 spatial_filter = "OData.CSC.Intersects(area=geography'SRID=4326;POLYGON((-140.99778 41.6751050889,-140.99778 83.23324,-52.6480987209 41.6751050889,-52.6480987209 83.23324,-140.99778 41.6751050889))')"
 product_filter = "contains(Name,'S3A_SL_2_LST')"
 
+# Convert strings to datetime objects
+start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+
+# Calculate the end date by adding one day
+end_date += timedelta(days=1)
+
+# Format the date range in the specified format
+temporal_filter = (
+    f"ContentDate/Start gt {start_date.isoformat()}Z "
+    f"and ContentDate/Start lt {end_date.isoformat()}Z"
+
+)
+
 api_query = (
     "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
-    f"$filter={spatial_filter} and {product_filter}"
+    f"$filter={spatial_filter} and {product_filter} and {temporal_filter}"
 )
 
 data = requests.get(api_query).json()
@@ -109,7 +123,7 @@ end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
 
 filtered_products = [
     product for product in data['value']
-    if start_date <= datetime.strptime(product['ContentDate']['Start'], "%Y-%m-%dT%H:%M:%S.%fZ") <= end_date
+    # if start_date <= datetime.strptime(product['ContentDate']['Start'], "%Y-%m-%dT%H:%M:%S.%fZ") <= end_date
 ]
 
 # %%
