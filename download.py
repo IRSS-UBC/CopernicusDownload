@@ -130,7 +130,8 @@ while True:
 
     data = requests.get(api_query).json()
 
-    products.extend(data['value'])
+    if "value" in data:
+        products.extend(data['value'])
 
     if "@odata.nextLink" in data:
         api_query = data['@odata.nextLink']
