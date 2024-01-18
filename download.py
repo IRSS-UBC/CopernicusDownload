@@ -107,19 +107,22 @@ temporal_filter = (
     f"and ContentDate/Start lt {end_date.isoformat()}Z"
 )
 
+
+api_query = (
+    "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
+    f"$filter={spatial_filter} and {product_filter} and {temporal_filter}&$top=20&$orderby=ContentDate/Start desc"
+)
+
 products = []
 
 depth = 0
 while True:
     print(f"Querying depth {depth}")
     depth += 1
-    api_query = (
-        "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
-        f"$filter={spatial_filter} and {product_filter} and {temporal_filter}&$top=20&$orderby=ContentDate/Start desc"
-    )
+
     data = requests.get(api_query).json()
 
-    products.append(data['value'])
+    products.extend(data['value'])
 
     if "@odata.nextLink" in data:
         api_query = data['@odata.nextLink']
@@ -132,13 +135,11 @@ while True:
 start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
 end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
 
-filtered_products = [
-    product for product in products
-]
+
 
 # %%
 
-for product in tqdm.tqdm(filtered_products, desc="Downloading Products", unit="product"):
+for product in tqdm.tqdm(products, desc="Downloading Products", unit="product"):
     accessToken = get_token(refreshToken)
     productID = product['Id']
 
