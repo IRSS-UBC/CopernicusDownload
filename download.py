@@ -44,7 +44,7 @@ def authenticate(username=None):
             keyring.delete_password(serviceName, username)
             continue
         else:
-            print("Authenticated")
+            print(f"Authenticated as {username}")
             authenticated = True
 
     return username, refresh_token
@@ -98,18 +98,10 @@ def get_access_token(user, refresh_token, refresh_count=0):
         return post_response.json()['access_token'], refresh_token
 
 
-def rename_move(file_path, new_extension, new_path):
+def rename_file(file_path, new_extension):
     try:
-        # Split the file path into the base name and the extension
-        base_name, current_extension = os.path.splitext(file_path)
-
-        # Generate the new file name with the same base name and the new extension
-        new_file_name = base_name + new_extension
-
-        # Rename the file
+        new_file_name = get_new_file_name(file_path, new_extension)
         os.rename(file_path, new_file_name)
-
-        shutil.move(new_file_name, Path(new_path).resolve())
 
     # print(f"File successfully renamed with new extension: {new_file_name}")
     except FileNotFoundError:
@@ -118,8 +110,26 @@ def rename_move(file_path, new_extension, new_path):
         print(f"Error: File with new name {new_file_name} already exists.")
 
 
+def get_new_file_name(file_path, new_extension):
+    # Split the file path into the base name and the extension
+    base_name, current_extension = os.path.splitext(file_path)
+
+    new_file_name = base_name + new_extension
+    return new_file_name
+
+
 # %% Authentication
-auth_user, auth_refresh_token = authenticate()
+auth_user = None
+if os.path.exists("username.txt"):
+    # Open the file in read mode
+    with open("username.txt", 'r') as file:
+        # Read the first line and store it in the 'username' variable
+        auth_user = file.readline().strip()
+
+auth_user, auth_refresh_token = authenticate(auth_user)
+
+with open("username.txt", 'w') as file:
+    file.write(auth_user)
 
 # %% Query the API
 
@@ -207,13 +217,20 @@ for product in tqdm(products, desc="Downloading Products", unit="product"):
     productID = product['Id']
     productName = product['Name']
 
+    finalProductName = get_new_file_name(productName, ".zip")
+
     downloaded = False
     downloadAttempt = 0
     while not downloaded:
+
+        if Path(Path(destination) / Path(finalProductName)).resolve().exists():
+            print("File already downloaded... skipping download.")
+            break
+
         if downloadAttempt > download_attempts:
             print(f"Download attempt failed more than {download_attempts} times for product with ID {productID}. "
                   f"Moving to next product")
-            continue
+            break
 
         downloaded, ex = download_product(productID, auth_access_token, productName)
 
@@ -222,6 +239,7 @@ for product in tqdm(products, desc="Downloading Products", unit="product"):
 
         downloadAttempt += 1
 
-    rename_move(productName, ".zip", destination)
+    rename_file(productName, ".zip")
+    shutil.move(finalProductName, Path(destination).resolve())
 
 # %%
