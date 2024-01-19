@@ -195,6 +195,9 @@ def download_product(product_id, access_token, filename, download_chunk_size=819
     except urllib3.exceptions.ProtocolError as e:
         # catch when the connection drops
         return False, e
+    except requests.exceptions.ChunkedEncodingError as e:
+        # catch when server stops sending chunks... Token expired?
+        return False, e
     else:
         return True, None
 
