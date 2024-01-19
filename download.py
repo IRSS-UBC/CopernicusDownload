@@ -1,24 +1,51 @@
 import os
+import shutil
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import keyring
-import requests
-import tqdm
-
 import pwinput
+import requests
+from tqdm.autonotebook import tqdm
 
-import shutil
+# %% configuration
 
-download_chunk_size = 8192
 
-destination = "/output"
+destination = Path("output")
 
-serviceName = "odata_dataspace"
 start_date_str = "2020-01-01"
-end_date_str = "2020-01-03"
+end_date_str = "2020-01-31"
+
+# %% constants
+serviceName = "odata_dataspace"
+
+# %% setup
+if not os.path.exists(destination):
+    Path(destination).mkdir(parents=True, exist_ok=True)
 
 
-# %%
+# %% functions
+
+def authenticate(username=None):
+    refresh_token = None
+    authenticated = False
+    while not authenticated:
+        if username is None:
+            username = input("Please enter username:")
+
+        if keyring.get_password(serviceName, username) is None:
+            keyring.set_password(serviceName, username, pwinput.pwinput("Please enter your o-data password:"))
+        try:
+            refresh_token = get_refresh_token(username, keyring.get_password(serviceName, username))
+        except ConnectionRefusedError:
+            keyring.delete_password(serviceName, username)
+            continue
+        else:
+            print("Authenticated")
+            authenticated = True
+
+    return username, refresh_token
+
 
 def get_refresh_token(username, password):
     # Define the endpoint and parameters
@@ -36,10 +63,10 @@ def get_refresh_token(username, password):
     if response.status_code != 200:
         raise ConnectionRefusedError("Error getting token: {}".format(response.json()))
     else:
-        return response.json()['refresh_token'], response.json()['access_token']
+        return response.json()['refresh_token']
 
 
-def get_token(refresh_token):
+def get_access_token(user, refresh_token, refresh_count=0):
     # Define the endpoint and parameters
     url = 'https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token'
     headers = {'Content-Type': 'application/x-www-form-urlencoded'}
@@ -49,12 +76,23 @@ def get_token(refresh_token):
         'client_id': 'cdse-public'
     }
 
-    response = requests.post(url, headers=headers, data=data)
+    post_response = requests.post(url, headers=headers, data=data)
 
-    if response.status_code != 200:
-        raise Exception("Error getting token: {}".format(response.json()))
+    if post_response.status_code != 200:
+        if post_response.json()['error'] == 'invalid_grant':
+            print("Invalid grant, trying to get new refresh token")
+            if refresh_count > 10:
+                raise ConnectionRefusedError("Error getting token: {}".format(post_response.json()))
+
+            refresh_token = authenticate(user)[1]
+
+            return get_access_token(user, refresh_token, refresh_count + 1)
+
+        else:
+            raise ConnectionRefusedError("Error getting token: {}".format(post_response.json()))
+
     else:
-        return response.json()['access_token']
+        return post_response.json()['access_token'], refresh_token
 
 
 def rename_move(file_path, new_extension, new_path):
@@ -68,9 +106,7 @@ def rename_move(file_path, new_extension, new_path):
         # Rename the file
         os.rename(file_path, new_file_name)
 
-        shutil.move(new_file_name, new_path)
-
-
+        shutil.move(new_file_name, Path(new_path).resolve())
 
         print(f"File successfully renamed with new extension: {new_file_name}")
     except FileNotFoundError:
@@ -79,25 +115,10 @@ def rename_move(file_path, new_extension, new_path):
         print(f"Error: File with new name {new_file_name} already exists.")
 
 
-# %%
+# %% Authentication
+auth_user, auth_refresh_token = authenticate()
 
-authenticated = False
-while not authenticated:
-    username = input("Please enter username:")
-
-    if keyring.get_password(serviceName, username) is None:
-        keyring.set_password(serviceName, username, pwinput.pwinput("Please enter your odata password:"))
-
-    try:
-        refreshToken, accessToken = get_refresh_token(username, keyring.get_password(serviceName, username))
-    except ConnectionRefusedError:
-        keyring.delete_password(serviceName, username)
-        continue
-    else:
-        print("Authenticated")
-        authenticated = True
-
-# %%
+# %% Query the API
 
 spatial_filter = "OData.CSC.Intersects(area=geography'SRID=4326;POLYGON((-140.99778 41.6751050889,-140.99778 83.23324,-52.6480987209 41.6751050889,-52.6480987209 83.23324,-140.99778 41.6751050889))')"
 product_filter = "contains(Name,'S3A_SL_2_LST')"
@@ -115,7 +136,6 @@ temporal_filter = (
     f"and ContentDate/Start lt {end_date.isoformat()}Z"
 )
 
-
 api_query = (
     "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
     f"$filter={spatial_filter} and {product_filter} and {temporal_filter}&$top=20&$orderby=ContentDate/Start desc"
@@ -123,9 +143,14 @@ api_query = (
 
 products = []
 
+pbar = tqdm(desc="Scanning Files", unit=" files")
 depth = 0
+
+lastValue = 0
 while True:
-    print(f"Querying depth {depth}")
+    pbar.update(len(products) - lastValue)
+    lastValue = len(products)
+
     depth += 1
 
     data = requests.get(api_query).json()
@@ -139,24 +164,22 @@ while True:
         print("Found no more pages.")
         break
 
-#%%
-
+pbar.close()
 start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
 end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
 
+# %% Download the products
 
 
-# %%
-
-for product in tqdm.tqdm(products, desc="Downloading Products", unit="product"):
-    accessToken = get_token(refreshToken)
+for product in tqdm(products, desc="Downloading Products", unit="product"):
+    auth_access_token, auth_refresh_token = get_access_token(auth_user, auth_refresh_token)
     productID = product['Id']
 
     # Download the products
 
     url = f"https://zipper.dataspace.copernicus.eu/odata/v1/Products({productID})/$value"
 
-    headers = {"Authorization": f"Bearer {accessToken}"}
+    headers = {"Authorization": f"Bearer {auth_access_token}"}
 
     session = requests.Session()
     session.headers.update(headers)
@@ -164,16 +187,19 @@ for product in tqdm.tqdm(products, desc="Downloading Products", unit="product"):
 
     content_size = int(response.headers.get('Content-Length', 0))
 
+    download_chunk_size = 8192
+
+    progress_bar = tqdm(desc=f"Downloading {product['Name']}", total=content_size, unit='B', unit_scale=True,
+                        unit_divisor=1024, leave=False, miniters=1)
+
     with open(product['Name'], "wb") as file:
-        for chunk in tqdm.tqdm(response.iter_content(chunk_size=download_chunk_size),
-                               desc=f"Downloading {product['Name']}",
-                               unit="chunk", total=content_size / download_chunk_size, leave=False):
+        for chunk in response.iter_content(chunk_size=download_chunk_size):
             if chunk:
                 file.write(chunk)
+                progress_bar.update(len(chunk))
+
+    progress_bar.close()
 
     rename_move(product['Name'], ".zip", destination)
-
-
-
 
 # %%
