@@ -1,3 +1,5 @@
+import contextlib
+import inspect
 import os
 import shutil
 from datetime import datetime, timedelta
@@ -227,7 +229,8 @@ for product in tqdm(products, desc="Downloading Products", unit="product"):
         print("File already downloaded... skipping download.")
         continue
 
-    os.remove(productName)
+    if Path.exists(productName):
+        os.remove(productName)
 
     downloaded = False
     downloadAttempt = 0
