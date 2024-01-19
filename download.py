@@ -106,8 +106,12 @@ def rename_file(file_path, new_extension):
     # print(f"File successfully renamed with new extension: {new_file_name}")
     except FileNotFoundError:
         print(f"Error: File {file_path} not found.")
+        return None
     except FileExistsError:
         print(f"Error: File with new name {new_file_name} already exists.")
+        return None
+    else:
+        return new_file_name
 
 
 def get_new_file_name(file_path, new_extension):
@@ -241,7 +245,8 @@ for product in tqdm(products, desc="Downloading Products", unit="product"):
 
         downloadAttempt += 1
 
-    rename_file(productName, ".zip")
-    shutil.move(finalProductName, Path(destination).resolve())
+    fileName = rename_file(productName, ".zip")
+    if fileName is not None:
+        shutil.move(fileName, Path(destination).resolve())
 
 # %%
