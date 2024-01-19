@@ -223,6 +223,8 @@ for product in tqdm(products, desc="Downloading Products", unit="product"):
         print("File already downloaded... skipping download.")
         continue
 
+    os.remove(productName)
+
     downloaded = False
     downloadAttempt = 0
     while not downloaded:
