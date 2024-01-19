@@ -6,7 +6,10 @@ from pathlib import Path
 import keyring
 import pwinput
 import requests
+import urllib3.exceptions
 from tqdm.autonotebook import tqdm
+
+download_attempts = 10
 
 # %% configuration
 
@@ -108,7 +111,7 @@ def rename_move(file_path, new_extension, new_path):
 
         shutil.move(new_file_name, Path(new_path).resolve())
 
-        print(f"File successfully renamed with new extension: {new_file_name}")
+    # print(f"File successfully renamed with new extension: {new_file_name}")
     except FileNotFoundError:
         print(f"Error: File {file_path} not found.")
     except FileExistsError:
@@ -138,7 +141,7 @@ temporal_filter = (
 
 api_query = (
     "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?"
-    f"$filter={spatial_filter} and {product_filter} and {temporal_filter}&$top=20&$orderby=ContentDate/Start desc"
+    f"$filter={spatial_filter} and {product_filter} and {temporal_filter}&$top=50&$orderby=ContentDate/Start desc"
 )
 
 products = []
@@ -168,38 +171,54 @@ pbar.close()
 start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
 end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
 
+
 # %% Download the products
+
+
+def download_product(product_id, access_token, filename, download_chunk_size=8192):
+    try:
+        url = f"https://zipper.dataspace.copernicus.eu/odata/v1/Products({product_id})/$value"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        session = requests.Session()
+        session.headers.update(headers)
+        response = session.get(url, headers=headers, stream=True)
+        content_size = int(response.headers.get('Content-Length', 0))
+
+        progress_bar = tqdm(desc=f"Downloading {filename}", total=content_size, unit='B', unit_scale=True,
+                            unit_divisor=1024, leave=False, miniters=1)
+        with open(filename, "wb") as file:
+            for chunk in response.iter_content(chunk_size=download_chunk_size):
+                if chunk:
+                    file.write(chunk)
+                    progress_bar.update(len(chunk))
+        progress_bar.close()
+    except urllib3.exceptions.ProtocolError as e:
+        # catch when the connection drops
+        return False, e
+    else:
+        return True, None
 
 
 for product in tqdm(products, desc="Downloading Products", unit="product"):
     auth_access_token, auth_refresh_token = get_access_token(auth_user, auth_refresh_token)
     productID = product['Id']
+    productName = product['Name']
 
-    # Download the products
+    downloaded = False
+    downloadAttempt = 0
+    while not downloaded:
+        if downloadAttempt > download_attempts:
+            print(f"Download attempt failed more than {download_attempts} times for product with ID {productID}. "
+                  f"Moving to next product")
+            continue
 
-    url = f"https://zipper.dataspace.copernicus.eu/odata/v1/Products({productID})/$value"
+        downloaded, ex = download_product(productID, auth_access_token, productName)
 
-    headers = {"Authorization": f"Bearer {auth_access_token}"}
+        if not downloaded:
+            print(f"Download failed for product {productID}{str(ex)}. Trying again...")
 
-    session = requests.Session()
-    session.headers.update(headers)
-    response = session.get(url, headers=headers, stream=True)
+        downloadAttempt += 1
 
-    content_size = int(response.headers.get('Content-Length', 0))
-
-    download_chunk_size = 8192
-
-    progress_bar = tqdm(desc=f"Downloading {product['Name']}", total=content_size, unit='B', unit_scale=True,
-                        unit_divisor=1024, leave=False, miniters=1)
-
-    with open(product['Name'], "wb") as file:
-        for chunk in response.iter_content(chunk_size=download_chunk_size):
-            if chunk:
-                file.write(chunk)
-                progress_bar.update(len(chunk))
-
-    progress_bar.close()
-
-    rename_move(product['Name'], ".zip", destination)
+    rename_move(productName, ".zip", destination)
 
 # %%
