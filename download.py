@@ -219,13 +219,13 @@ for product in tqdm(products, desc="Downloading Products", unit="product"):
 
     finalProductName = get_new_file_name(productName, ".zip")
 
+    if Path(Path(destination) / Path(finalProductName)).resolve().exists():
+        print("File already downloaded... skipping download.")
+        continue
+
     downloaded = False
     downloadAttempt = 0
     while not downloaded:
-
-        if Path(Path(destination) / Path(finalProductName)).resolve().exists():
-            print("File already downloaded... skipping download.")
-            break
 
         if downloadAttempt > download_attempts:
             print(f"Download attempt failed more than {download_attempts} times for product with ID {productID}. "
