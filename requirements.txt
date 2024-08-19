@@ -1,0 +1,5 @@
+keyring
+pwinput
+requests
+urllib3
+tqdm
