@@ -2,6 +2,7 @@ import contextlib
 import inspect
 import os
 import shutil
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -11,23 +12,42 @@ import requests
 import urllib3.exceptions
 from tqdm.autonotebook import tqdm
 
-download_attempts = 10
+# Define the path to the configuration file
+config_file_path = "config.json"
+
+# Default configuration values
+default_config = {
+    "destination": "output",
+    "start_date_str": "2020-01-01",
+    "end_date_str": "2020-01-31",
+    "spatial_filter": "OData.CSC.Intersects(area=geography'SRID=4326;POLYGON((-140.99778 41.6751050889,-140.99778 83.23324,-52.6480987209 41.6751050889,-52.6480987209 83.23324,-140.99778 41.6751050889))')",
+    "product_filter": "contains(Name,'S3A_SL_2_LST')",
+    "serviceName": "odata_dataspace",
+    "download_attempts": 10
+}
+
+# Load the configuration
+if os.path.exists(config_file_path):
+    with open(config_file_path, 'r') as config_file:
+        config = json.load(config_file)
+else:
+    # If the config file doesn't exist, create it with default values
+    with open(config_file_path, 'w') as config_file:
+        json.dump(default_config, config_file, indent=4)
+    config = default_config
 
 # %% configuration
-
-
-destination = Path("output")
-
-start_date_str = "2020-01-01"
-end_date_str = "2020-01-31"
-
-# %% constants
-serviceName = "odata_dataspace"
+destination = Path(config["destination"])
+start_date_str = config["start_date_str"]
+end_date_str = config["end_date_str"]
+spatial_filter = config["spatial_filter"]
+product_filter = config["product_filter"]
+serviceName = config["serviceName"]
+download_attempts = config["download_attempts"]
 
 # %% setup
 if not os.path.exists(destination):
     Path(destination).mkdir(parents=True, exist_ok=True)
-
 
 # %% functions
 
@@ -104,8 +124,6 @@ def rename_file(file_path, new_extension):
     try:
         new_file_name = get_new_file_name(file_path, new_extension)
         os.rename(file_path, new_file_name)
-
-    # print(f"File successfully renamed with new extension: {new_file_name}")
     except FileNotFoundError:
         print(f"Error: File {file_path} not found.")
         return None
@@ -123,7 +141,6 @@ def get_new_file_name(file_path, new_extension):
     new_file_name = base_name + new_extension
     return new_file_name
 
-
 # %% Authentication
 auth_user = None
 if os.path.exists("username.txt"):
@@ -138,9 +155,6 @@ with open("username.txt", 'w') as file:
     file.write(auth_user)
 
 # %% Query the API
-
-spatial_filter = "OData.CSC.Intersects(area=geography'SRID=4326;POLYGON((-140.99778 41.6751050889,-140.99778 83.23324,-52.6480987209 41.6751050889,-52.6480987209 83.23324,-140.99778 41.6751050889))')"
-product_filter = "contains(Name,'S3A_SL_2_LST')"
 
 # Convert strings to datetime objects
 start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
@@ -189,7 +203,6 @@ end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
 
 
 # %% Download the products
-
 
 def download_product(product_id, access_token, filename, download_chunk_size=8192):
     try:
